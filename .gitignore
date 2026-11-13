@@ -1,0 +1,25 @@
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+.pytest_cache/
+.mypy_cache/
+*.egg-info/
+build/
+dist/
+
+# Model weights and caches: never commit these
+models/
+*.safetensors
+*.bin
+*.gguf
+*.pt
+*.pth
+hf-cache/
+
+# Local config, logs and editors
+.env
+*.log
+.idea/
+.vscode/
