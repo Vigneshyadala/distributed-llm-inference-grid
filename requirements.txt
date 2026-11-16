@@ -1,0 +1,11 @@
+# Runtime dependencies. Version ranges for now; exact versions are frozen before release.
+# On Windows, pip installs the CPU build of PyTorch by default.
+torch>=2.5
+safetensors>=0.4
+numpy>=1.26
+grpcio>=1.64
+grpcio-tools>=1.64
+fastapi>=0.110
+uvicorn>=0.29
+websockets>=12
+psutil>=5.9
