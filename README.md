@@ -28,6 +28,18 @@ A custom distributed inference engine in Python. It shards a Large Language Mode
 
 Details are in [docs/architecture.md](docs/architecture.md) and the dated plan is in [docs/plan.md](docs/plan.md).
 
+## Setup
+
+```
+python -m venv .venv
+source .venv/Scripts/activate      # Git Bash on Windows
+pip install --no-cache-dir -r requirements-dev.txt
+python -m pytest -q
+python scripts/check_env.py --allreduce
+```
+
+`check_env.py` changes nothing. It prints the Python, CPU, RAM and disk figures, the library versions, which PyTorch backends are available, and (with `--allreduce`) runs a two-process `gloo` all-reduce, the building block of tensor parallelism.
+
 ## Hardware and honesty notes
 
 The development machine is a laptop with a 2-core CPU, 12 GB of RAM and no NVIDIA GPU. So:
