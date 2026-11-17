@@ -40,6 +40,23 @@ python scripts/check_env.py --allreduce
 
 `check_env.py` changes nothing. It prints the Python, CPU, RAM and disk figures, the library versions, which PyTorch backends are available, and (with `--allreduce`) runs a two-process `gloo` all-reduce, the building block of tensor parallelism.
 
+## Try the master-worker grid
+
+```
+python scripts/hello_grid.py --workers 2
+```
+
+This starts two separate worker processes on free local ports. The master greets all of them at once over gRPC (`grpc.aio` and `asyncio.gather`), checks that their ranks and world size are consistent, measures a ping round trip to each, and prints one row per worker with its own process id:
+
+```
+worker     rank world     pid version  address                 ping
+-------------------------------------------------------------------
+worker-0      0     2    4120 0.1.0    127.0.0.1:50321      1.40 ms
+worker-1      1     2    9876 0.1.0    127.0.0.1:50322      1.28 ms
+```
+
+The numbers above are an example; yours will differ. The protocol is described in [docs/grpc-protocol.md](docs/grpc-protocol.md). Workers and the master can also be run by hand with `python -m grid.worker --rank 0 --world-size 2 --port 23461` and `python -m grid.master --workers 127.0.0.1:23461,127.0.0.1:23462` (set `PYTHONPATH=src` when running outside pytest).
+
 ## Hardware and honesty notes
 
 The development machine is a laptop with a 2-core CPU, 12 GB of RAM and no NVIDIA GPU. So:

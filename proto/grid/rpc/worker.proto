@@ -1,0 +1,32 @@
+syntax = "proto3";
+
+package grid.rpc;
+
+// The calls the master makes on every worker node.
+service Worker {
+  // First contact: the master asks the worker who it is.
+  rpc Hello (HelloRequest) returns (HelloReply);
+
+  // A round trip with an echoed payload, used to measure inter-node latency.
+  rpc Ping (PingRequest) returns (PingReply);
+}
+
+message HelloRequest {
+  string master_id = 1;
+}
+
+message HelloReply {
+  int32 rank = 1;          // position of this worker in the grid, starting at 0
+  int32 world_size = 2;    // how many workers the grid should have
+  string worker_id = 3;    // for example "worker-0"
+  string version = 4;      // version of the grid package running on the worker
+  int32 pid = 5;           // operating-system process id (shows workers are separate processes)
+}
+
+message PingRequest {
+  bytes payload = 1;
+}
+
+message PingReply {
+  bytes payload = 1;
+}
