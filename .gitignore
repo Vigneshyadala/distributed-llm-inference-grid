@@ -23,3 +23,8 @@ hf-cache/
 *.log
 .idea/
 .vscode/
+
+# Generated gRPC code (rebuilt automatically from proto/)
+src/grid/rpc/*_pb2.py
+src/grid/rpc/*_pb2_grpc.py
+src/grid/rpc/*_pb2.pyi
