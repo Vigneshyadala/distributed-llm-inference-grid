@@ -8,8 +8,8 @@ A custom distributed inference engine in Python. It shards a Large Language Mode
 
 | Week | Scope | State |
 |------|-------|-------|
-| 1 | Master-worker topology (asyncio + gRPC), safetensors weight loading with memory-mapping, commit rules | In progress |
-| 2 | Tensor parallelism with `torch.distributed`, asynchronous KV-cache manager, review cycles | Planned |
+| 1 | Master-worker topology (asyncio + gRPC), safetensors weight loading with memory-mapping, commit rules | Done |
+| 2 | Tensor parallelism with `torch.distributed`, asynchronous KV-cache manager, review cycles | Started (shard plan done, tensor-parallel layers next) |
 | 3 | Continuous batching, collective-communication backend switch, FastAPI + WebSocket gateway | Planned |
 | 4 | Docker Swarm deployment, load tests (TTFT, inter-node latency), final report | Planned |
 
@@ -56,6 +56,14 @@ worker-1      1     2    9876 0.1.0    127.0.0.1:50322      1.28 ms
 ```
 
 The numbers above are an example; yours will differ. The protocol is described in [docs/grpc-protocol.md](docs/grpc-protocol.md). Workers and the master can also be run by hand with `python -m grid.worker --rank 0 --world-size 2 --port 23461` and `python -m grid.master --workers 127.0.0.1:23461,127.0.0.1:23462` (set `PYTHONPATH=src` when running outside pytest).
+
+## Weights and sharding
+
+```
+python scripts/inspect_weights.py --demo
+```
+
+This prints a tiny random Llama-style model and, for every tensor, how it is split across workers (column, row, vocab or replicated) and how many MB each worker holds. Weights are read with memory-mapping, so a worker loads only its own shard. Details, and the limits of the shard plan (for example why Qwen2.5-0.5B runs on 1 or 2 workers), are in [docs/weights.md](docs/weights.md).
 
 ## Hardware and honesty notes
 

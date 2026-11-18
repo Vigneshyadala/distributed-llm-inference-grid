@@ -13,7 +13,7 @@ Source: Zaalima Development Pvt. Ltd. project document and SOP version 1.1 (Mont
 
 ## Mid Review (end of week 2, between 23 and 30 Nov)
 
-- [ ] Network topology and master-worker communication operational
+- [x] Network topology and master-worker communication operational
 - [ ] Tensor parallelism distributing weights correctly without data loss
 - [ ] Branch commit rules and initial review cycles passed
 - [ ] Commits on at least 10 different days in the 14 days before the review
