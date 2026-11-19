@@ -65,6 +65,14 @@ python scripts/inspect_weights.py --demo
 
 This prints a tiny random Llama-style model and, for every tensor, how it is split across workers (column, row, vocab or replicated) and how many MB each worker holds. Weights are read with memory-mapping, so a worker loads only its own shard. Details, and the limits of the shard plan (for example why Qwen2.5-0.5B runs on 1 or 2 workers), are in [docs/weights.md](docs/weights.md).
 
+## Tensor-parallel layers
+
+```
+python scripts/tp_check.py --workers 2
+```
+
+Two worker processes each hold half of a transformer-sized MLP (a column-parallel layer, a ReLU, then a row-parallel layer), exchange partial results with one `gloo` all-reduce, and the script checks the answer against the same layers computed on the full weights. It prints the largest difference, the weights each worker holds, and the all-reduce time. How the split works, and why a pair of layers needs only one all-reduce, is in [docs/tensor-parallel.md](docs/tensor-parallel.md).
+
 ## Hardware and honesty notes
 
 The development machine is a laptop with a 2-core CPU, 12 GB of RAM and no NVIDIA GPU. So:
