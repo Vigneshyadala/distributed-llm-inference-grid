@@ -73,6 +73,14 @@ python scripts/tp_check.py --workers 2
 
 Two worker processes each hold half of a transformer-sized MLP (a column-parallel layer, a ReLU, then a row-parallel layer), exchange partial results with one `gloo` all-reduce, and the script checks the answer against the same layers computed on the full weights. It prints the largest difference, the weights each worker holds, and the all-reduce time. How the split works, and why a pair of layers needs only one all-reduce, is in [docs/tensor-parallel.md](docs/tensor-parallel.md).
 
+## Tensor-parallel transformer block
+
+```
+python scripts/block_check.py --workers 2
+```
+
+A full MLP (SwiGLU) and attention block (rotary embeddings, grouped-query attention, key/value cache) with the real shape of a Qwen2.5-0.5B layer is split across worker processes. Each block needs one all-reduce, so a layer needs two. The script checks the sharded result against the same block on the full weights, with and without the cache, and prints what each worker holds. More in [docs/tensor-parallel.md](docs/tensor-parallel.md).
+
 ## Hardware and honesty notes
 
 The development machine is a laptop with a 2-core CPU, 12 GB of RAM and no NVIDIA GPU. So:
