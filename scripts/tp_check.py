@@ -12,9 +12,7 @@ computation done on the full weights, and the times are printed.
 Exit code 0 means the sharded result matched the full one.
 """
 import argparse
-import os
 import sys
-import tempfile
 import time
 from pathlib import Path
 
@@ -22,7 +20,8 @@ import numpy as np
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
-from grid.tp import ColumnParallelLinear, RowParallelLinear, run_ranks  # noqa: E402
+from grid.runner import pick_backend, run_workers  # noqa: E402
+from grid.tp import ColumnParallelLinear, RowParallelLinear  # noqa: E402
 
 TOLERANCE = 1e-4
 
@@ -81,56 +80,6 @@ def check_rank(group, convert, to_numpy, hidden, inter, tokens, repeat, seed=0):
     }
 
 
-def run_threads(args):
-    return run_ranks(
-        args.workers,
-        lambda group: check_rank(group, lambda a: a, lambda a: a,
-                                 args.hidden, args.inter, args.tokens, args.repeat),
-    )
-
-
-def _gloo_worker(rank, world_size, init_method, args, queue):
-    try:
-        import torch
-        from grid.tp import TorchGroup
-
-        torch.set_num_threads(1)  # one math thread per worker; the CPU has few cores
-        group = TorchGroup(rank, world_size, init_method)
-        try:
-            result = check_rank(group, torch.from_numpy, lambda t: t.numpy(),
-                                args.hidden, args.inter, args.tokens, args.repeat)
-        finally:
-            group.close()
-        queue.put(result)
-    except BaseException as exc:  # noqa: BLE001 - report, never hang the parent
-        queue.put({"rank": rank, "failed": f"{type(exc).__name__}: {exc}"})
-
-
-def run_gloo(args):
-    import torch.multiprocessing as mp
-
-    path = os.path.join(tempfile.mkdtemp(), "rendezvous")
-    init_method = ("file:///" + path.replace("\\", "/")) if os.name == "nt" else "file://" + path
-    ctx = mp.get_context("spawn")
-    queue = ctx.Queue()
-    procs = [ctx.Process(target=_gloo_worker, args=(r, args.workers, init_method, args, queue))
-             for r in range(args.workers)]
-    for proc in procs:
-        proc.start()
-    try:
-        results = [queue.get(timeout=120) for _ in procs]
-        for proc in procs:
-            proc.join(timeout=30)
-    finally:
-        for proc in procs:
-            if proc.is_alive():
-                proc.terminate()
-    for result in results:
-        if "failed" in result:
-            raise RuntimeError(f"worker {result['rank']} failed: {result['failed']}")
-    return sorted(results, key=lambda r: r["rank"])
-
-
 def main():
     parser = argparse.ArgumentParser(description="Check tensor-parallel layers against full layers.")
     parser.add_argument("--workers", type=int, default=2)
@@ -141,16 +90,11 @@ def main():
     parser.add_argument("--repeat", type=int, default=20)
     args = parser.parse_args()
 
-    backend = args.backend
-    if backend == "auto":
-        try:
-            import torch  # noqa: F401
-            backend = "gloo"
-        except ImportError:
-            backend = "threads"
-
-    runner = run_gloo if backend == "gloo" else run_threads
-    results = runner(args)
+    backend = pick_backend(args.backend)
+    results = run_workers(
+        check_rank, args.workers, backend,
+        hidden=args.hidden, inter=args.inter, tokens=args.tokens, repeat=args.repeat,
+    )
 
     print(f"tensor-parallel check: {args.workers} workers, backend {backend}, "
           f"hidden {args.hidden}, MLP width {args.inter}, {args.tokens} tokens")
