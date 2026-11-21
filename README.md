@@ -9,7 +9,7 @@ A custom distributed inference engine in Python. It shards a Large Language Mode
 | Week | Scope | State |
 |------|-------|-------|
 | 1 | Master-worker topology (asyncio + gRPC), safetensors weight loading with memory-mapping, commit rules | Done |
-| 2 | Tensor parallelism with `torch.distributed`, asynchronous KV-cache manager, review cycles | Started (shard plan done, tensor-parallel layers next) |
+| 2 | Tensor parallelism with `torch.distributed`, asynchronous KV-cache manager, review cycles | Tensor-parallel layers and blocks done; paged KV cache done; review cycles next |
 | 3 | Continuous batching, collective-communication backend switch, FastAPI + WebSocket gateway | Planned |
 | 4 | Docker Swarm deployment, load tests (TTFT, inter-node latency), final report | Planned |
 
@@ -80,6 +80,15 @@ python scripts/block_check.py --workers 2
 ```
 
 A full MLP (SwiGLU) and attention block (rotary embeddings, grouped-query attention, key/value cache) with the real shape of a Qwen2.5-0.5B layer is split across worker processes. Each block needs one all-reduce, so a layer needs two. The script checks the sharded result against the same block on the full weights, with and without the cache, and prints what each worker holds. More in [docs/tensor-parallel.md](docs/tensor-parallel.md).
+
+## Paged KV cache
+
+```
+python scripts/kv_demo.py
+python scripts/kv_demo.py --check
+```
+
+Each worker keeps the keys and values of its own attention heads in a pool of fixed-size blocks, one block table per sequence. A block is taken only when the last one is full and is returned when the sequence finishes, so memory is fixed up front, never fragmented, and a full cache is refused cleanly. The first command draws the block map and the Qwen2.5-0.5B memory figures; the second checks cached decoding of two interleaved sequences on worker processes against full attention. More in [docs/kv-cache.md](docs/kv-cache.md).
 
 ## Hardware and honesty notes
 
