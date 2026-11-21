@@ -60,3 +60,35 @@ def repeat_heads(x, repeats):
     if is_torch(x):
         return x.repeat_interleave(repeats, dim=1)
     return np.repeat(x, repeats, axis=1)
+
+
+def cast_like(x, reference):
+    """`x` converted to the dtype of `reference` (a cache may store a smaller dtype than the math uses)."""
+    if is_torch(x):
+        return x.to(reference.dtype)
+    return x.astype(reference.dtype, copy=False)
+
+
+ELEMENT_BYTES = {"float64": 8, "float32": 4, "float16": 2, "bfloat16": 2}
+
+
+def element_bytes(dtype):
+    """Bytes per element of a dtype given by name, e.g. "bfloat16"."""
+    try:
+        return ELEMENT_BYTES[dtype]
+    except KeyError:
+        raise ValueError(f"unsupported dtype {dtype!r}; use one of {sorted(ELEMENT_BYTES)}") from None
+
+
+def zeros(shape, dtype="float32", backend="numpy"):
+    """A zero-filled array (backend "numpy") or tensor (backend "torch") of the named dtype."""
+    element_bytes(dtype)
+    if backend == "torch":
+        import torch
+
+        return torch.zeros(shape, dtype=getattr(torch, dtype))
+    if backend != "numpy":
+        raise ValueError(f"backend must be 'numpy' or 'torch', not {backend!r}")
+    if dtype == "bfloat16":
+        raise ValueError("numpy has no bfloat16; use the torch backend")
+    return np.zeros(shape, dtype=dtype)

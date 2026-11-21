@@ -14,7 +14,7 @@ belong to its own heads only; that is the shard of the KV cache this worker must
 """
 import numpy as np
 
-from grid.ops import as_like, cat, repeat_heads, silu, softmax
+from grid.ops import as_like, cast_like, cat, repeat_heads, silu, softmax
 from grid.tp import ColumnParallelLinear, RowParallelLinear, SoloGroup
 
 
@@ -122,17 +122,30 @@ class ParallelAttention:
         o = RowParallelLinear(checkpoint.load_shard(prefix + "o_proj.weight", rank, size, head_dim), group=group)
         return cls(column("q_proj"), column("k_proj"), column("v_proj"), o, head_dim, rope_theta)
 
-    def __call__(self, x, past=None):
-        """Attend over `x` ([batch, new_tokens, hidden]), and over `past` if given.
+    def __call__(self, x, past=None, cache=None):
+        """Attend over `x` ([batch, new_tokens, hidden]), and over earlier tokens if there are any.
 
-        `past` is the (keys, values) this worker returned earlier. Returns (output, present):
-        the full hidden-size output, and this worker's keys and values for every token so far,
-        each [batch, kv_heads_on_this_worker, total_tokens, head_dim], to pass back next time.
+        Earlier tokens come from one of two places:
+
+        `past`   the (keys, values) this worker returned on the previous call. Returns
+                 (output, present): the full hidden-size output, and this worker's keys and
+                 values for every token so far, each [batch, kv_heads_on_this_worker,
+                 total_tokens, head_dim], to pass back next time.
+        `cache`  one sequence's view of a paged KV cache (`PagedKVCache.view(seq_id, layer)`).
+                 The new keys and values are stored in the cache and the earlier ones are read
+                 from it. Returns (output, None). The batch must be 1: one sequence per call.
         """
         if len(x.shape) != 3:
             raise ValueError(f"attention expects [batch, tokens, hidden], got shape {tuple(x.shape)}")
+        if past is not None and cache is not None:
+            raise ValueError("pass either past or cache, not both")
         batch, new, _ = x.shape
-        start = 0 if past is None else past[0].shape[2]
+        if cache is not None and batch != 1:
+            raise ValueError("a KV cache serves one sequence at a time, so the batch must be 1")
+        if cache is not None:
+            start = cache.length
+        else:
+            start = 0 if past is None else past[0].shape[2]
         hd = self.head_dim
 
         def heads(y, count):
@@ -145,9 +158,14 @@ class ParallelAttention:
         cos, sin = rotary_tables(np.arange(start, start + new), hd, self.rope_theta)
         q, k = apply_rotary(q, cos, sin), apply_rotary(k, cos, sin)
 
-        if past is not None:
-            k, v = cat([past[0], k], axis=2), cat([past[1], v], axis=2)
-        present = (k, v)
+        if cache is not None:
+            k, v = cache.extend(k, v)
+            k, v = cast_like(k, q), cast_like(v, q)
+            present = None
+        else:
+            if past is not None:
+                k, v = cat([past[0], k], axis=2), cat([past[1], v], axis=2)
+            present = (k, v)
 
         group_size = self.heads // self.kv_heads
         keys, values = repeat_heads(k, group_size), repeat_heads(v, group_size)
