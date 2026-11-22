@@ -10,7 +10,7 @@ A custom distributed inference engine in Python. It shards a Large Language Mode
 |------|-------|-------|
 | 1 | Master-worker topology (asyncio + gRPC), safetensors weight loading with memory-mapping, commit rules | Done |
 | 2 | Tensor parallelism with `torch.distributed`, asynchronous KV-cache manager, review cycles | Tensor-parallel layers and blocks done; paged KV cache done; review cycles next |
-| 3 | Continuous batching, collective-communication backend switch, FastAPI + WebSocket gateway | Planned |
+| 3 | Continuous batching, collective-communication backend switch, FastAPI + WebSocket gateway | Batching scheduler done; gateway next |
 | 4 | Docker Swarm deployment, load tests (TTFT, inter-node latency), final report | Planned |
 
 ## Design at a glance
@@ -89,6 +89,15 @@ python scripts/kv_demo.py --check
 ```
 
 Each worker keeps the keys and values of its own attention heads in a pool of fixed-size blocks, one block table per sequence. A block is taken only when the last one is full and is returned when the sequence finishes, so memory is fixed up front, never fragmented, and a full cache is refused cleanly. The first command draws the block map and the Qwen2.5-0.5B memory figures; the second checks cached decoding of two interleaved sequences on worker processes against full attention. More in [docs/kv-cache.md](docs/kv-cache.md).
+
+## Continuous batching
+
+```
+python scripts/batch_demo.py
+python scripts/batch_demo.py --check
+```
+
+The scheduler decides at every step which requests run together: a finished request leaves at once and a waiting one takes its place, instead of a group waiting for its slowest member. Requests are served first come, first served, and one is admitted only if the cache can hold its whole reply, so a running request can never run out of blocks. The demo draws static and continuous batching for the same eight requests; with a batch of 4, continuous needs 10 steps instead of 13. More in [docs/batching.md](docs/batching.md).
 
 ## Hardware and honesty notes
 
