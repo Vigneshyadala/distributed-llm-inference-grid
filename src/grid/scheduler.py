@@ -228,6 +228,24 @@ class Scheduler:
         self.step_number += 1
         return done
 
+    def fail_step(self, plan, reason):
+        """The step could not be run (the model raised): abort every request in it and carry on.
+
+        Returns the aborted requests. Requests that were not in the plan are untouched.
+        """
+        if plan is not self._pending:
+            raise SchedulerError("fail_step needs the plan that next_step returned last")
+        failed = list(plan.requests)
+        for request in failed:
+            self._running.remove(request)
+            if self.cache.has_sequence(request.id):
+                self.cache.free_sequence(request.id)
+            request.state, request.reason = ABORTED, reason
+            self.aborted.append(request)
+        self._pending = None
+        self.step_number += 1
+        return failed
+
     def stats(self):
         """Numbers for the dashboard."""
         return {

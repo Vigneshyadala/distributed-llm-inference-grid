@@ -262,3 +262,19 @@ def test_random_workloads_always_finish_without_leaks():
         assert cache.free_blocks == cache.num_blocks and cache.sequence_ids() == []
         assert all(t["blocks_used"] <= cache.num_blocks and t["running"] <= scheduler.max_batch_size
                    for t in scheduler.timeline)
+
+
+def test_failed_step_aborts_only_the_requests_in_it_and_frees_their_blocks():
+    cache = make_cache(16)
+    scheduler = Scheduler(cache, max_batch_size=1)
+    scheduler.submit(Request("a", 4, 4))
+    scheduler.submit(Request("b", 4, 4))
+    plan = scheduler.next_step()
+    failed = scheduler.fail_step(plan, "model error: boom")
+    assert [r.id for r in failed] == ["a"] and scheduler.get("a").state == ABORTED
+    assert scheduler.get("a").reason == "model error: boom" and not cache.has_sequence("a")
+    assert scheduler.step_number == 1 and [r.id for r in scheduler.waiting] == ["b"]
+    run_to_completion(scheduler, execute(cache))              # the scheduler keeps working
+    assert scheduler.get("b").state == FINISHED and cache.free_blocks == cache.num_blocks
+    with pytest.raises(SchedulerError, match="last"):
+        scheduler.fail_step(plan, "again")
