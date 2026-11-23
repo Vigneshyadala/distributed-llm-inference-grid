@@ -10,7 +10,7 @@ A custom distributed inference engine in Python. It shards a Large Language Mode
 |------|-------|-------|
 | 1 | Master-worker topology (asyncio + gRPC), safetensors weight loading with memory-mapping, commit rules | Done |
 | 2 | Tensor parallelism with `torch.distributed`, asynchronous KV-cache manager, review cycles | Tensor-parallel layers and blocks done; paged KV cache done; review cycles next |
-| 3 | Continuous batching, collective-communication backend switch, FastAPI + WebSocket gateway | Batching scheduler done; gateway next |
+| 3 | Continuous batching, collective-communication backend switch, FastAPI + WebSocket gateway | Batching scheduler and HTTP gateway done; live streaming next |
 | 4 | Docker Swarm deployment, load tests (TTFT, inter-node latency), final report | Planned |
 
 ## Design at a glance
@@ -98,6 +98,16 @@ python scripts/batch_demo.py --check
 ```
 
 The scheduler decides at every step which requests run together: a finished request leaves at once and a waiting one takes its place, instead of a group waiting for its slowest member. Requests are served first come, first served, and one is admitted only if the cache can hold its whole reply, so a running request can never run out of blocks. The demo draws static and continuous batching for the same eight requests; with a batch of 4, continuous needs 10 steps instead of 13. More in [docs/batching.md](docs/batching.md).
+
+## Gateway
+
+```
+python scripts/serve.py
+curl -X POST http://127.0.0.1:8765/v1/generate -H "Content-Type: application/json" -d "{\"prompt\": \"hello grid\", \"max_new_tokens\": 5}"
+curl http://127.0.0.1:8765/stats
+```
+
+An engine loop runs the scheduler's steps and a FastAPI gateway sits in front of it: `POST /v1/generate`, `GET /stats` for the dashboard and `GET /health`. Many clients are served in the same batch, a full queue answers 503, a request that can never fit answers 413, and a failing step only fails the requests in it. Until the real model is connected, a simulated model with real cache traffic stands in for it. More in [docs/gateway.md](docs/gateway.md).
 
 ## Hardware and honesty notes
 
