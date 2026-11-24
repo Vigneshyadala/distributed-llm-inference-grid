@@ -12,11 +12,24 @@ loop that accepts new requests. Today the model behind it is `SimulatedModel`, a
 stores keys and values in the real paged cache and answers dummy tokens; the master replaces it
 with the real tensor-parallel model.
 
+Anyone can also watch the whole engine with `subscribe()` (the dashboard does): a queue of events
+about all requests and every step, described at the bottom of this docstring.
+
 Every client owns a `Job` with a queue of events:
 
     {"type": "token", "token": 1004, "index": 0}        one per generated token
     {"type": "done", "reason": "length" | "eos"}        the last event of a good reply
     {"type": "rejected" | "error" | "cancelled", "reason": "..."}   the last event of a bad one
+
+A subscriber sees, for all requests, each with a "t" (seconds since 1970):
+
+    {"type": "submitted", "id", "prompt_len", "max_new_tokens"}
+    {"type": "rejected",  "id", "reason"}                          could never fit in the cache
+    {"type": "step", "step", "prefill": [ids], "decode": [ids], "finished": [ids], "running",
+     "waiting", "reserved_blocks", "blocks_used", "tokens_in", "ms", "stats": {...}}
+    {"type": "finished",  "id", "kind": "done"|"cancelled"|"error", "reason", "tokens",
+     "wait_steps", "latency_steps"}
+    {"type": "stopped"}                                            the engine was shut down
 """
 import asyncio
 import itertools
@@ -72,6 +85,7 @@ class Engine:
         self.execute = execute
         self.max_waiting = max_waiting
         self._jobs = {}
+        self._subscribers = set()
         self._cancelled = set()
         self._counter = itertools.count(1)
         self._wakeup = None
@@ -96,6 +110,7 @@ class Engine:
         for job in list(self._jobs.values()):
             job.push({"type": "cancelled", "reason": "engine stopped"})
         self._jobs.clear()
+        self._publish({"type": "stopped"})
 
     # ------------------------------------------------------------------ clients
 
@@ -113,7 +128,10 @@ class Engine:
         if request.state == "rejected":
             job.push({"type": "rejected", "reason": request.reason})
             del self._jobs[request.id]
+            self._publish({"type": "rejected", "id": request.id, "reason": request.reason})
         else:
+            self._publish({"type": "submitted", "id": request.id,
+                           "prompt_len": prompt_len, "max_new_tokens": max_new_tokens})
             self._wakeup.set()
         return job
 
@@ -122,6 +140,29 @@ class Engine:
         if job.request.id in self._jobs:
             self._cancelled.add(job.request.id)
             self._wakeup.set()
+
+    # ------------------------------------------------------------------ watching
+
+    def subscribe(self, maxsize=200):
+        """A queue that receives every engine event (see the top of this file).
+
+        A subscriber that reads too slowly loses its OLDEST events instead of slowing the engine.
+        """
+        queue = asyncio.Queue(maxsize=maxsize)
+        self._subscribers.add(queue)
+        return queue
+
+    def unsubscribe(self, queue):
+        self._subscribers.discard(queue)
+
+    def _publish(self, event):
+        if not self._subscribers:
+            return
+        event = {**event, "t": round(time.time(), 3)}
+        for queue in self._subscribers:
+            if queue.full():
+                queue.get_nowait()
+            queue.put_nowait(event)
 
     # --------------------------------------------------------------------- loop
 
@@ -134,6 +175,7 @@ class Engine:
                 plan = scheduler.next_step()
                 if plan is None:
                     break
+                started = time.perf_counter()
                 try:
                     tokens = await asyncio.to_thread(self.execute, plan)
                 except asyncio.CancelledError:
@@ -144,6 +186,8 @@ class Engine:
                         self._finish(request, "error")
                     continue
                 done = scheduler.complete_step(plan, tokens)
+                self._publish({"type": "step", **scheduler.timeline[-1], "ms": round(1000 * (time.perf_counter() - started), 3),
+                               "stats": scheduler.stats()})
                 for request in plan.requests:
                     job = self._jobs.get(request.id)
                     if job is not None:
@@ -163,6 +207,9 @@ class Engine:
         job = self._jobs.pop(request.id, None)
         if job is not None:
             job.push({"type": kind, "reason": request.reason})
+        self._publish({"type": "finished", "id": request.id, "kind": kind, "reason": request.reason,
+                       "tokens": request.generated, "wait_steps": request.wait_steps,
+                       "latency_steps": request.latency_steps})
 
 
 class SimulatedModel:

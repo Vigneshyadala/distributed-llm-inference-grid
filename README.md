@@ -10,7 +10,7 @@ A custom distributed inference engine in Python. It shards a Large Language Mode
 |------|-------|-------|
 | 1 | Master-worker topology (asyncio + gRPC), safetensors weight loading with memory-mapping, commit rules | Done |
 | 2 | Tensor parallelism with `torch.distributed`, asynchronous KV-cache manager, review cycles | Tensor-parallel layers and blocks done; paged KV cache done; review cycles next |
-| 3 | Continuous batching, collective-communication backend switch, FastAPI + WebSocket gateway | Batching scheduler and HTTP gateway done; live streaming next |
+| 3 | Continuous batching, collective-communication backend switch, FastAPI + WebSocket gateway | Batching scheduler, HTTP gateway and live streaming done; web dashboard next |
 | 4 | Docker Swarm deployment, load tests (TTFT, inter-node latency), final report | Planned |
 
 ## Design at a glance
@@ -105,9 +105,11 @@ The scheduler decides at every step which requests run together: a finished requ
 python scripts/serve.py
 curl -X POST http://127.0.0.1:8765/v1/generate -H "Content-Type: application/json" -d "{\"prompt\": \"hello grid\", \"max_new_tokens\": 5}"
 curl http://127.0.0.1:8765/stats
+python scripts/stream_client.py "hello grid" --max-new 10     tokens, as they appear
+python scripts/stream_client.py --events                       every step, live
 ```
 
-An engine loop runs the scheduler's steps and a FastAPI gateway sits in front of it: `POST /v1/generate`, `GET /stats` for the dashboard and `GET /health`. Many clients are served in the same batch, a full queue answers 503, a request that can never fit answers 413, and a failing step only fails the requests in it. Until the real model is connected, a simulated model with real cache traffic stands in for it. More in [docs/gateway.md](docs/gateway.md).
+An engine loop runs the scheduler's steps and a FastAPI gateway sits in front of it: `POST /v1/generate`, `GET /stats` for the dashboard and `GET /health`. Many clients are served in the same batch, a full queue answers 503, a request that can never fit answers 413, a failing step only fails the requests in it, and two WebSockets stream tokens as they appear (`/v1/stream`) and every engine event live (`/ws/events`, the dashboard's source). Until the real model is connected, a simulated model with real cache traffic stands in for it. More in [docs/gateway.md](docs/gateway.md).
 
 ## Hardware and honesty notes
 

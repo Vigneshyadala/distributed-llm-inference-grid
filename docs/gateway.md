@@ -41,6 +41,8 @@ can be watched.
 | GET | `/health` | `{"status": "ok"}` |
 | GET | `/stats` | scheduler counts, cache memory accounting and the last 20 steps (what the dashboard will read) |
 | POST | `/v1/generate` | body `{"prompt": "...", "max_new_tokens": 32}`; the generated tokens, the finish reason and wait and latency in steps |
+| WS | `/v1/stream` | send the same JSON once; every token arrives as soon as it exists, then `done` |
+| WS | `/ws/events` | a live feed of everything the engine does: the source of the dashboard |
 
 | Status | Meaning |
 |--------|---------|
@@ -62,10 +64,63 @@ curl http://127.0.0.1:8765/stats
 Send several requests at once and watch `/stats`: `recent_steps` shows them running in the same
 batch.
 
+## Streaming one reply
+
+`/v1/stream` is a WebSocket. The client sends one JSON message, `{"prompt": "...", "max_new_tokens": 8}`,
+and receives one message per token the moment it exists, so the first token shows up after the
+first step instead of after the whole reply:
+
+```
+{"type": "token", "token": 1000, "index": 0}
+{"type": "token", "token": 1001, "index": 1}
+...
+{"type": "done", "reason": "length"}
+```
+
+Problems arrive as a last message and the server closes the socket: `{"type": "error", "status": 422,
+"detail": ...}` for a bad request, `{"type": "error", "status": 503, ...}` when the queue is full,
+`{"type": "rejected", "reason": ...}` when the request can never fit. **If the client closes the
+socket while a reply is running, the request is cancelled and its blocks are freed at once.**
+
+## The live event feed
+
+`/ws/events` is what the dashboard listens to. It starts with one `snapshot` (the same numbers as
+`/stats`) and then sends every event as it happens, each with a timestamp `t`:
+
+| Event | When | Main fields |
+|-------|------|-------------|
+| `submitted` | a request is queued | `id`, `prompt_len`, `max_new_tokens` |
+| `rejected` | it can never fit in the cache | `id`, `reason` |
+| `step` | after every step | `step`, `prefill`, `decode`, `finished`, `running`, `waiting`, `reserved_blocks`, `blocks_used`, `tokens_in`, `ms`, `stats` |
+| `finished` | a request ends | `id`, `kind` (`done`, `cancelled`, `error`), `reason`, `tokens`, `wait_steps`, `latency_steps` |
+| `stopped` | the engine shuts down | |
+
+A watcher that reads too slowly loses its **oldest** events (each has a bounded queue), so a slow
+browser tab can never slow the engine down. Any number of watchers can connect at once.
+
+## Watching from a terminal
+
+```
+python scripts/serve.py --step-seconds 0.05
+python scripts/stream_client.py --events                     follow every step (second window)
+python scripts/stream_client.py "hello grid" --max-new 20    stream one reply (third window)
+```
+
+Start two replies together and the event window shows the second one joining the same batch while
+the first is still decoding:
+
+```
+step    0  prefill [req-1]  decode [-]  running 1  waiting 1  blocks 1/256  51.4 ms
+step    1  prefill [req-2]  decode [req-1]  running 2  waiting 0  blocks 2/256  50.9 ms
+step    2  prefill [-]  decode [req-1,req-2]  running 2  waiting 0  blocks 2/256  50.8 ms
+```
+
 ## Limits
 
 - The tokenizer is a stand-in that counts words. The model's real tokenizer replaces it with the real model.
-- A reply is returned when it is complete. Streaming tokens as they appear, over a WebSocket, is next.
+- The `ms` of a step is the simulated model's time. Real step times come with the real model.
+- The event feed shows what happens from the moment you connect (plus the last 20 steps in the
+  snapshot); it is not a stored history.
 - Steps are counted, not timed; real timings come with the load tests.
 - The worker thread and the event loop both touch the cache. The loop only adds and removes
   sequences between steps, and a step only writes into sequences that already exist, so they never
