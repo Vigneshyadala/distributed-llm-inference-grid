@@ -48,7 +48,9 @@ def stream_reply(url, prompt, max_new):
         while True:
             event = json.loads(ws.recv())
             elapsed = 1000 * (time.perf_counter() - start)
-            if event["type"] == "token":
+            if event["type"] == "accepted":
+                print(f"{elapsed:8.1f} ms  accepted as {event['id']} ({event['prompt_tokens']} prompt tokens)")
+            elif event["type"] == "token":
                 print(f"{elapsed:8.1f} ms  token {event['index']:>3} = {event['token']}")
             else:
                 print(f"{elapsed:8.1f} ms  {event['type']}" + (f": {event.get('reason') or event.get('detail')}"

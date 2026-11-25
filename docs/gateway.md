@@ -43,6 +43,7 @@ can be watched.
 | POST | `/v1/generate` | body `{"prompt": "...", "max_new_tokens": 32}`; the generated tokens, the finish reason and wait and latency in steps |
 | WS | `/v1/stream` | send the same JSON once; every token arrives as soon as it exists, then `done` |
 | WS | `/ws/events` | a live feed of everything the engine does: the source of the dashboard |
+| GET | `/` | the live dashboard page ([dashboard.md](dashboard.md)); its files are under `/assets/` |
 
 | Status | Meaning |
 |--------|---------|
@@ -67,10 +68,11 @@ batch.
 ## Streaming one reply
 
 `/v1/stream` is a WebSocket. The client sends one JSON message, `{"prompt": "...", "max_new_tokens": 8}`,
-and receives one message per token the moment it exists, so the first token shows up after the
-first step instead of after the whole reply:
+and first receives the request's id, then one message per token the moment it exists, so the first
+token shows up after the first step instead of after the whole reply:
 
 ```
+{"type": "accepted", "id": "req-1", "prompt_tokens": 3}
 {"type": "token", "token": 1000, "index": 0}
 {"type": "token", "token": 1001, "index": 1}
 ...
@@ -91,7 +93,7 @@ socket while a reply is running, the request is cancelled and its blocks are fre
 |-------|------|-------------|
 | `submitted` | a request is queued | `id`, `prompt_len`, `max_new_tokens` |
 | `rejected` | it can never fit in the cache | `id`, `reason` |
-| `step` | after every step | `step`, `prefill`, `decode`, `finished`, `running`, `waiting`, `reserved_blocks`, `blocks_used`, `tokens_in`, `ms`, `stats` |
+| `step` | after every step | `step`, `prefill`, `decode`, `finished`, `running`, `waiting`, `reserved_blocks`, `blocks_used`, `tokens_in`, `ms`, `stats`, `block_map` (who owns each cache block after the step) |
 | `finished` | a request ends | `id`, `kind` (`done`, `cancelled`, `error`), `reason`, `tokens`, `wait_steps`, `latency_steps` |
 | `stopped` | the engine shuts down | |
 

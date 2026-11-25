@@ -26,7 +26,8 @@ A subscriber sees, for all requests, each with a "t" (seconds since 1970):
     {"type": "submitted", "id", "prompt_len", "max_new_tokens"}
     {"type": "rejected",  "id", "reason"}                          could never fit in the cache
     {"type": "step", "step", "prefill": [ids], "decode": [ids], "finished": [ids], "running",
-     "waiting", "reserved_blocks", "blocks_used", "tokens_in", "ms", "stats": {...}}
+     "waiting", "reserved_blocks", "blocks_used", "tokens_in", "ms", "stats": {...},
+     "block_map": [null | [request id, tokens held], ...]}          one entry per cache block
     {"type": "finished",  "id", "kind": "done"|"cancelled"|"error", "reason", "tokens",
      "wait_steps", "latency_steps"}
     {"type": "stopped"}                                            the engine was shut down
@@ -155,6 +156,11 @@ class Engine:
     def unsubscribe(self, queue):
         self._subscribers.discard(queue)
 
+    def block_map(self):
+        """Who owns each cache block right now: None if free, else [request id, tokens held]."""
+        return [None if owner is None else [owner["seq"], owner["tokens"]]
+                for owner in self.scheduler.cache.block_map()]
+
     def _publish(self, event):
         if not self._subscribers:
             return
@@ -186,8 +192,10 @@ class Engine:
                         self._finish(request, "error")
                     continue
                 done = scheduler.complete_step(plan, tokens)
-                self._publish({"type": "step", **scheduler.timeline[-1], "ms": round(1000 * (time.perf_counter() - started), 3),
-                               "stats": scheduler.stats()})
+                if self._subscribers:                # building the block map costs a little; only if watched
+                    self._publish({"type": "step", **scheduler.timeline[-1],
+                                   "ms": round(1000 * (time.perf_counter() - started), 3),
+                                   "stats": scheduler.stats(), "block_map": self.block_map()})
                 for request in plan.requests:
                     job = self._jobs.get(request.id)
                     if job is not None:

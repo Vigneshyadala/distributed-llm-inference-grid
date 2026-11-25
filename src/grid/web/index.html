@@ -1,0 +1,131 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Distributed Memory Grid – Live</title>
+<meta name="description" content="Live view of a distributed LLM inference engine: continuous batching and a paged KV cache.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;600&family=Space+Grotesk:wght@500;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="assets/style.css">
+</head>
+<body>
+<div class="ambient" id="ambient" aria-hidden="true"><i class="ring r1"></i><i class="ring r2"></i><i class="ring r3"></i></div>
+
+<header class="topbar">
+  <div class="wrap topbar-row">
+    <a class="brand" href="#top" aria-label="Distributed Memory Grid">
+      <span class="mark">DG</span>
+      <span><b>Distributed Memory Grid</b><small>BY VIGNESH YADALA</small></span>
+    </a>
+    <nav aria-label="Sections">
+      <a href="#batching">Batching</a><a href="#memory">Memory</a><a href="#try">Try it</a><a href="#terminal">Terminal</a>
+      <a href="https://github.com/Vigneshyadala/distributed-llm-inference-grid" rel="noopener">GitHub</a>
+    </nav>
+    <div class="badge" id="badge" role="status" aria-live="polite"><i></i><span id="badge-text">CONNECTING</span></div>
+  </div>
+</header>
+
+<main id="top" class="wrap">
+  <section class="hero">
+    <div class="hero-copy">
+      <div class="badge-row">
+        <p class="eyebrow">TENSOR PARALLEL · PAGED KV · BATCHING</p>
+        <a class="dev-badge" href="https://vigneshyadala.github.io/portfolio/" rel="noopener" aria-label="Built by Vignesh Yadala, open portfolio">
+          <span class="orbit" aria-hidden="true"><span class="mark">VY</span><i class="sat"></i></span>
+          <span class="dev-text"><small>built by</small><b>Vignesh Yadala</b></span>
+        </a>
+      </div>
+      <h1>Many requests.<br><em>One batch.</em><br>No wasted memory.</h1>
+      <p class="lede">A distributed inference engine that shards a language model across workers, keeps every
+        sequence's memory in fixed-size blocks, and lets requests join and leave the running batch at every step.
+        Everything below is what the engine is doing right now.</p>
+      <div class="cta">
+        <button class="btn primary" id="burst">▶ Send 4 requests</button>
+        <button class="btn" id="replay">↻ Replay recorded run</button>
+      </div>
+      <p class="note" id="mode-note"></p>
+    </div>
+    <div class="hero-graphic" id="graphic">
+      <svg viewBox="0 0 440 300" role="img" aria-label="Request path: client, gateway, scheduler, cache">
+        <defs><path id="p1" d="M60 150 H160"/><path id="p2" d="M200 150 H290"/><path id="p3" d="M330 120 V70 H390"/><path id="p4" d="M330 180 V230 H390"/></defs>
+        <g class="lines"><use href="#p1"/><use href="#p2"/><use href="#p3"/><use href="#p4"/></g>
+        <g class="dots">
+          <circle r="4" class="fd" style="offset-path:path('M60 150 H160');animation-delay:0s"/><circle r="4" class="fd" style="offset-path:path('M60 150 H160');animation-delay:.7s"/>
+          <circle r="4" class="fd" style="offset-path:path('M200 150 H290');animation-delay:.2s"/><circle r="4" class="fd" style="offset-path:path('M200 150 H290');animation-delay:.9s"/>
+          <circle r="4" class="fd" style="offset-path:path('M330 120 V70 H390');animation-delay:.4s"/>
+          <circle r="4" class="fd" style="offset-path:path('M330 180 V230 H390');animation-delay:.6s"/>
+        </g>
+        <g class="node"><rect x="8" y="128" width="52" height="44" rx="9"/><text x="34" y="154" text-anchor="middle">client</text></g>
+        <g class="node"><rect x="160" y="118" width="40" height="64" rx="9"/><text x="180" y="144" text-anchor="middle">gate</text><text x="180" y="158" text-anchor="middle">way</text></g>
+        <g class="node hot-node"><rect x="290" y="108" width="80" height="84" rx="10"/><text x="330" y="140" text-anchor="middle">scheduler</text><text id="g-sched" x="330" y="160" text-anchor="middle" class="num">0 running</text><text id="g-wait" x="330" y="176" text-anchor="middle" class="sub">0 waiting</text></g>
+        <g class="node"><rect x="390" y="44" width="46" height="52" rx="9"/><text x="413" y="66" text-anchor="middle">worker</text><text x="413" y="82" text-anchor="middle" class="sub">0</text></g>
+        <g class="node"><rect x="390" y="204" width="46" height="52" rx="9"/><text x="413" y="226" text-anchor="middle">worker</text><text x="413" y="242" text-anchor="middle" class="sub">1</text></g>
+        <text id="g-cache" x="220" y="285" text-anchor="middle" class="sub">KV cache: blocks 0 / 0</text>
+      </svg>
+      <p class="note small">Workers are simulated until the real model is connected. The scheduler and cache are real.</p>
+    </div>
+  </section>
+
+  <section class="ticker" aria-label="Live numbers">
+    <div class="stat"><b id="s-steps">0</b><span>steps run</span></div>
+    <div class="stat"><b id="s-run">0</b><span>running now</span></div>
+    <div class="stat"><b id="s-rate">0</b><span>tokens per second</span></div>
+    <div class="stat"><b id="s-mem">0%</b><span>cache in use</span></div>
+  </section>
+
+  <section id="batching">
+    <h2>Continuous batching</h2>
+    <p class="sub">One row per request, one column per step. <b class="pc">P</b> is the prefill (the prompt goes in) and <b class="dc">d</b> is a decode (one more token). A dotted line is a request waiting for room. When a request finishes, the next one takes its place on the very next step.</p>
+    <div class="panel"><canvas id="lanes" aria-label="Batching swimlanes"></canvas><div class="legend" id="lane-legend"></div></div>
+  </section>
+
+  <section id="memory">
+    <h2>Paged KV cache</h2>
+    <p class="sub">Every square is one block of tokens. A request takes a block only when its last one is full and gives all of them back when it finishes. The colour is the request that owns the block; the fill is how full it is.</p>
+    <div class="panel mem">
+      <div class="blocks" id="blocks" aria-label="KV cache blocks"></div>
+      <div class="gauges">
+        <div class="gauge"><span>in use</span><div class="bar"><i id="bar-used"></i></div><b id="g-used">0 / 0</b></div>
+        <div class="gauge"><span>reserved</span><div class="bar"><i id="bar-res" class="res"></i></div><b id="g-res">0 / 0</b></div>
+        <p class="note small">Reserved is room promised to running requests for their whole reply, which is why a running request can never run out of blocks.</p>
+      </div>
+    </div>
+  </section>
+
+  <section id="try">
+    <h2>Try it</h2>
+    <p class="sub">Send a prompt and watch the tokens arrive as the engine makes them. The same request shows up in the lanes and the block map above, in the same colour.</p>
+    <div class="panel try">
+      <form id="form">
+        <label for="prompt">Prompt</label>
+        <textarea id="prompt" rows="2" maxlength="400">Explain paged attention in one sentence.</textarea>
+        <div class="row"><label for="maxnew">Tokens to generate</label><input id="maxnew" type="range" min="1" max="40" value="12"><output id="maxnew-out">12</output>
+          <button class="btn primary" type="submit" id="send">Send</button></div>
+      </form>
+      <div class="results" id="results" aria-live="polite"></div>
+    </div>
+  </section>
+
+  <section id="terminal">
+    <h2>Live terminal</h2>
+    <p class="sub">The engine's event feed, as it happens. The tokens are placeholders from the simulated model; the scheduling, batching and memory are real.</p>
+    <div class="term"><div class="term-head"><i></i><i></i><i></i><span>grid — tail -f events</span><button class="mini" id="pause">pause</button></div>
+      <div class="term-body" id="term" role="log" aria-live="off"></div></div>
+  </section>
+
+  <section>
+    <h2>Coming next</h2>
+    <div class="soon">
+      <div><b>Layer waterfall</b><span>time per layer on each worker</span></div>
+      <div><b>All-reduce pulse</b><span>real gloo timings between workers</span></div>
+      <div><b>Straggler glow</b><span>highlight the slowest worker per step</span></div>
+      <div><b>1 vs 2 workers</b><span>the same prompt on both, side by side</span></div>
+    </div>
+    <p class="note small">These need the real tensor-parallel model behind the gateway, so they are not drawn with made-up numbers here.</p>
+  </section>
+</main>
+<footer class="wrap foot">Distributed Memory Grid · built by Vignesh Yadala during the Zaalima Development internship · <span id="year"></span></footer>
+<script src="assets/app.js"></script>
+</body>
+</html>
