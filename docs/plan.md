@@ -21,6 +21,6 @@ Source: Zaalima Development Pvt. Ltd. project document and SOP version 1.1 (Mont
 ## Final Review (between 7 and 15 Dec)
 
 - [ ] Distributed inference engine generating tokens across multiple nodes
-- [ ] Continuous batching and KV-cache optimisation verified
+- [x] Continuous batching and KV-cache optimisation verified (scheduler and cache, on a simulated model)
 - [ ] Final architectural report and deployment scripts finalised
 - [ ] A commit on every one of the 20 days before the review (no gaps)

@@ -125,9 +125,11 @@ def test_tokens_stream_one_by_one_and_the_socket_closes():
     with client() as c, c.websocket_connect("/v1/stream") as ws:
         ws.send_json({"prompt": "hello streaming grid", "max_new_tokens": 4})
         events = receive_until_last(ws)
-    assert [e["type"] for e in events] == ["token"] * 4 + ["done"]
-    assert [e["token"] for e in events[:4]] == [1000, 1001, 1002, 1003]
-    assert [e["index"] for e in events[:4]] == [0, 1, 2, 3] and events[-1]["reason"] == "length"
+    assert [e["type"] for e in events] == ["accepted"] + ["token"] * 4 + ["done"]
+    assert events[0] == {"type": "accepted", "id": "req-1", "prompt_tokens": 3}
+    tokens = events[1:5]
+    assert [e["token"] for e in tokens] == [1000, 1001, 1002, 1003]
+    assert [e["index"] for e in tokens] == [0, 1, 2, 3] and events[-1]["reason"] == "length"
 
 
 @pytest.mark.parametrize("message", [{}, {"prompt": ""}, {"prompt": "x", "max_new_tokens": 0}, {"prompt": 7}])
@@ -165,6 +167,7 @@ def test_closing_the_socket_cancels_the_request_and_frees_its_blocks():
     with client(step_seconds=0.02, blocks=64) as c:
         with c.websocket_connect("/v1/stream") as ws:
             ws.send_json({"prompt": "a b c d", "max_new_tokens": 500})
+            assert ws.receive_json()["type"] == "accepted"
             assert ws.receive_json()["type"] == "token"
         assert wait_for(lambda: c.get("/stats").json()["scheduler"]["aborted"] == 1)
         stats = c.get("/stats").json()
@@ -219,8 +222,8 @@ def test_streaming_over_a_real_network_socket():
                 stamps.append(time.perf_counter())
                 if events[-1]["type"] == "done":
                     break
-        assert [e["type"] for e in events] == ["token"] * 5 + ["done"]
-        assert stamps[3] - stamps[0] > 0.015             # tokens arrived over time, not all at the end
+        assert [e["type"] for e in events] == ["accepted"] + ["token"] * 5 + ["done"]
+        assert stamps[4] - stamps[1] > 0.015             # tokens arrived over time, not all at the end
     finally:
         server.should_exit = True
         thread.join(10)

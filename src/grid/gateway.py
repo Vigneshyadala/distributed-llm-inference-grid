@@ -5,8 +5,10 @@
     POST /v1/generate    {"prompt": "...", "max_new_tokens": 32} -> the generated tokens
     WS   /v1/stream      send the same JSON once; every token arrives as soon as it exists
     WS   /ws/events      a live feed of everything the engine does (the dashboard's source)
+    GET  /               the live dashboard page (src/grid/web); /assets/* are its files
 
-On the streaming socket the same problems arrive as a last message {"type": "error", "status": 422 | 503,
+On the streaming socket the first message is {"type": "accepted", "id": ...} (so a client can find its
+request in the live feed), then one message per token. The same problems arrive as a last message {"type": "error", "status": 422 | 503,
 "detail": ...} (or {"type": "rejected", ...}) and the server closes the socket. Closing the socket
 while a reply is running cancels the request and frees its blocks.
 
@@ -19,9 +21,11 @@ the real model is connected.
 """
 import asyncio
 from contextlib import asynccontextmanager
+from pathlib import Path
 
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
-from fastapi.responses import JSONResponse
+from fastapi.responses import FileResponse, JSONResponse
+from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field, ValidationError
 
 from grid.engine import Engine, QueueFull, SimulatedModel
@@ -81,7 +85,10 @@ async def _send_until_done(ws, next_event):
         watcher.cancel()
 
 
-def create_app(engine, tokenizer=word_tokenizer):
+WEB_DIR = Path(__file__).resolve().parent / "web"
+
+
+def create_app(engine, tokenizer=word_tokenizer, web_dir=WEB_DIR):
     @asynccontextmanager
     async def lifespan(app):
         await engine.start()
@@ -92,6 +99,14 @@ def create_app(engine, tokenizer=word_tokenizer):
 
     app = FastAPI(title="Distributed Memory Grid gateway", lifespan=lifespan)
 
+    web_dir = Path(web_dir) if web_dir else None
+    if web_dir is not None and (web_dir / "index.html").exists():
+        @app.get("/", include_in_schema=False)
+        async def page():
+            return FileResponse(web_dir / "index.html")
+
+        app.mount("/assets", StaticFiles(directory=web_dir), name="assets")
+
     @app.get("/health")
     async def health():
         return {"status": "ok"}
@@ -100,7 +115,7 @@ def create_app(engine, tokenizer=word_tokenizer):
     async def stats():
         scheduler = engine.scheduler
         return {"scheduler": scheduler.stats(), "cache": scheduler.cache.stats(),
-                "recent_steps": scheduler.timeline[-20:]}
+                "recent_steps": scheduler.timeline[-20:], "block_map": engine.block_map()}
 
     @app.post("/v1/generate")
     async def generate(body: GenerateBody):
@@ -142,6 +157,8 @@ def create_app(engine, tokenizer=word_tokenizer):
             await ws.close(code=1013)
             return
         events = job.events()
+        if job.request.state != "rejected":      # a refused request is never "accepted"
+            await ws.send_json({"type": "accepted", "id": job.request.id, "prompt_tokens": job.request.prompt_len})
 
         async def next_event():
             return await anext(events, None)
@@ -161,8 +178,8 @@ def create_app(engine, tokenizer=word_tokenizer):
         queue = engine.subscribe()
         try:
             scheduler = engine.scheduler
-            await ws.send_json({"type": "snapshot", "stats": scheduler.stats(),
-                                "cache": scheduler.cache.stats(), "recent_steps": scheduler.timeline[-20:]})
+            await ws.send_json({"type": "snapshot", "stats": scheduler.stats(), "cache": scheduler.cache.stats(),
+                                "recent_steps": scheduler.timeline[-20:], "block_map": engine.block_map()})
             await _send_until_done(ws, queue.get)
         except (WebSocketDisconnect, RuntimeError):
             pass

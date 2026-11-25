@@ -10,7 +10,7 @@ A custom distributed inference engine in Python. It shards a Large Language Mode
 |------|-------|-------|
 | 1 | Master-worker topology (asyncio + gRPC), safetensors weight loading with memory-mapping, commit rules | Done |
 | 2 | Tensor parallelism with `torch.distributed`, asynchronous KV-cache manager, review cycles | Tensor-parallel layers and blocks done; paged KV cache done; review cycles next |
-| 3 | Continuous batching, collective-communication backend switch, FastAPI + WebSocket gateway | Batching scheduler, HTTP gateway and live streaming done; web dashboard next |
+| 3 | Continuous batching, collective-communication backend switch, FastAPI + WebSocket gateway | Batching scheduler, HTTP gateway, live streaming and first live dashboard done; backend switch next |
 | 4 | Docker Swarm deployment, load tests (TTFT, inter-node latency), final report | Planned |
 
 ## Design at a glance
@@ -110,6 +110,14 @@ python scripts/stream_client.py --events                       every step, live
 ```
 
 An engine loop runs the scheduler's steps and a FastAPI gateway sits in front of it: `POST /v1/generate`, `GET /stats` for the dashboard and `GET /health`. Many clients are served in the same batch, a full queue answers 503, a request that can never fit answers 413, a failing step only fails the requests in it, and two WebSockets stream tokens as they appear (`/v1/stream`) and every engine event live (`/ws/events`, the dashboard's source). Until the real model is connected, a simulated model with real cache traffic stands in for it. More in [docs/gateway.md](docs/gateway.md).
+
+## Live dashboard
+
+```
+python scripts/serve.py
+```
+
+Then open <http://127.0.0.1:8765/>. The page is served by the gateway and draws what the engine is doing right now: a swimlane per request showing continuous batching (prefill, decode and waiting), every block of the paged KV cache coloured by the request that owns it, live numbers, a terminal of engine events and a box to send your own prompts. If no server answers, it replays a real recorded run and says so in the badge. More in [docs/dashboard.md](docs/dashboard.md); a checklist for the Mid Review is in [docs/mid-review.md](docs/mid-review.md).
 
 ## Hardware and honesty notes
 
