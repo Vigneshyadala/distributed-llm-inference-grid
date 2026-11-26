@@ -119,6 +119,14 @@ python scripts/serve.py
 
 Then open <http://127.0.0.1:8765/>. The page is served by the gateway and draws what the engine is doing right now: a swimlane per request showing continuous batching (prefill, decode and waiting), every block of the paged KV cache coloured by the request that owns it, live numbers, a terminal of engine events and a box to send your own prompts. If no server answers, it replays a real recorded run and says so in the badge. More in [docs/dashboard.md](docs/dashboard.md); a checklist for the Mid Review is in [docs/mid-review.md](docs/mid-review.md).
 
+### Load test
+
+```
+python scripts/load_test.py --url ws://127.0.0.1:8765 --clients 32 --max-new 24
+```
+
+Sends many streamed requests at once and reports served and refused requests, tokens per second, and p50/p95/max for time to first token and for the full reply. Until the real model is connected it measures the scheduler, cache and gateway, not model speed. More in [docs/load-test.md](docs/load-test.md).
+
 ## Hardware and honesty notes
 
 The development machine is a laptop with a 2-core CPU, 12 GB of RAM and no NVIDIA GPU. So:

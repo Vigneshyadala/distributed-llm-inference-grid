@@ -50,3 +50,4 @@ from the repository root with the virtual environment active.
 | 23 Nov | engine loop and HTTP gateway |
 | 24 Nov | live token streaming and event feed |
 | 25 Nov | live dashboard and recorded run |
+| 26 Nov | gateway load test: TTFT, full-reply latency and tokens per second |
